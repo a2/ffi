@@ -83,7 +83,7 @@ typedef struct Memory {
 struct ClosurePool_ {
     void* ctx;
     int closureSize;
-    bool (*prep)(void* ctx, void *code, Closure* closure, char* errbuf, size_t errbufsize);
+    bool (*prep)(void* ctx, void* write, void* code, Closure* closure, char* errbuf, size_t errbufsize);
     struct Memory* blocks; /* Keeps track of all the allocated memory for this pool */
     Closure* list;
     long refcnt;
@@ -91,13 +91,9 @@ struct ClosurePool_ {
 
 static long pageSize;
 
-static void* allocatePage(void);
-static bool freePage(void *);
-static bool protectPage(void *);
-
 ClosurePool*
 rbffi_ClosurePool_New(int closureSize, 
-        bool (*prep)(void* ctx, void *code, Closure* closure, char* errbuf, size_t errbufsize),
+        bool (*prep)(void* ctx, void* write, void* code, Closure* closure, char* errbuf, size_t errbufsize),
         void* ctx)
 {
     ClosurePool* pool;
@@ -118,7 +114,7 @@ cleanup_closure_pool(ClosurePool* pool)
     
     for (memory = pool->blocks; memory != NULL; ) {
         Memory* next = memory->next;
-        freePage(memory->code);
+        ffi_closure_free(memory->code);
         free(memory->data);
         free(memory);
         memory = next;
@@ -143,6 +139,7 @@ rbffi_Closure_Alloc(ClosurePool* pool)
     Closure *list = NULL;
     Memory* block = NULL;
     caddr_t code = NULL;
+    caddr_t write = NULL;
     char errmsg[256];
     int nclosures;
     long trampolineSize;
@@ -160,7 +157,7 @@ rbffi_Closure_Alloc(ClosurePool* pool)
     nclosures = (int) (pageSize / trampolineSize);
     block = calloc(1, sizeof(*block));
     list = calloc(nclosures, sizeof(*list));
-    code = allocatePage();
+    write = ffi_closure_alloc(pageSize, (void **)&code);
     
     if (block == NULL || list == NULL || code == NULL) {
         snprintf(errmsg, sizeof(errmsg), "failed to allocate a page. errno=%d (%s)", errno, strerror(errno));
@@ -171,15 +168,12 @@ rbffi_Closure_Alloc(ClosurePool* pool)
         Closure* closure = &list[i];
         closure->next = &list[i + 1];
         closure->pool = pool;
-        closure->code = (code + (i * trampolineSize));
+        closure->write = write + (i * trampolineSize);
+        closure->code = code + (i * trampolineSize);
 
-        if (!(*pool->prep)(pool->ctx, closure->code, closure, errmsg, sizeof(errmsg))) {
+        if (!(*pool->prep)(pool->ctx, closure->write, closure->code, closure, errmsg, sizeof(errmsg))) {
             goto error;
         }
-    }
-
-    if (!protectPage(code)) {
-        goto error;
     }
 
     /* Track the allocated page + Closure memory area */
@@ -200,7 +194,7 @@ error:
     free(block);
     free(list);
     if (code != NULL) {
-        freePage(code);
+        ffi_closure_free(code);
     }
     
 
@@ -240,38 +234,6 @@ getPageSize()
     return si.dwPageSize;
 #else
     return sysconf(_SC_PAGESIZE);
-#endif
-}
-
-static void*
-allocatePage(void)
-{
-#if !defined(__CYGWIN__) && (defined(_WIN32) || defined(__WIN32__))
-    return VirtualAlloc(NULL, pageSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-#else
-    caddr_t page = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    return (page != (caddr_t) -1) ? page : NULL;
-#endif
-}
-
-static bool
-freePage(void *addr)
-{
-#if !defined(__CYGWIN__) && (defined(_WIN32) || defined(__WIN32__))
-    return VirtualFree(addr, 0, MEM_RELEASE);
-#else
-    return munmap(addr, pageSize) == 0;
-#endif
-}
-
-static bool
-protectPage(void* page)
-{
-#if !defined(__CYGWIN__) && (defined(_WIN32) || defined(__WIN32__))
-    DWORD oldProtect;
-    return VirtualProtect(page, pageSize, PAGE_EXECUTE_READ, &oldProtect);
-#else
-    return mprotect(page, pageSize, PROT_READ | PROT_EXEC) == 0;
 #endif
 }
 

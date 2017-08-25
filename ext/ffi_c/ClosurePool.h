@@ -35,6 +35,7 @@ typedef struct Closure_ Closure;
 struct Closure_ {
     void* info;      /* opaque handle for storing closure-instance specific data */
     void* function;  /* closure-instance specific function, called by custom trampoline */
+    void* write;     /* The write location for code */
     void* code;      /* The native trampoline code location */
     struct ClosurePool_* pool;
     Closure* next;
@@ -43,7 +44,7 @@ struct Closure_ {
 void rbffi_ClosurePool_Init(VALUE module);
 
 ClosurePool* rbffi_ClosurePool_New(int closureSize, 
-        bool (*prep)(void* ctx, void *code, Closure* closure, char* errbuf, size_t errbufsize),
+        bool (*prep)(void* ctx, void* write, void* code, Closure* closure, char* errbuf, size_t errbufsize),
         void* ctx);
 
 void rbffi_ClosurePool_Free(ClosurePool *);

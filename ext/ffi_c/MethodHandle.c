@@ -82,7 +82,7 @@
 
 
 
-static bool prep_trampoline(void* ctx, void* code, Closure* closure, char* errmsg, size_t errmsgsize);
+static bool prep_trampoline(void* ctx, void* write, void* code, Closure* closure, char* errmsg, size_t errmsgsize);
 static long trampoline_size(void);
 
 #if defined(__x86_64__) && (defined(__linux__) || defined(__APPLE__))
@@ -141,14 +141,14 @@ static ffi_type* methodHandleParamTypes[] = {
 static ffi_cif mh_cif;
 
 static bool
-prep_trampoline(void* ctx, void* code, Closure* closure, char* errmsg, size_t errmsgsize)
+prep_trampoline(void* ctx, void* write, void* code, Closure* closure, char* errmsg, size_t errmsgsize)
 {
     ffi_status ffiStatus;
 
 #if defined(USE_RAW)
-    ffiStatus = ffi_prep_raw_closure(code, &mh_cif, attached_method_invoke, closure);
+    ffiStatus = ffi_prep_raw_closure_loc(write, &mh_cif, attached_method_invoke, closure, code);
 #else
-    ffiStatus = ffi_prep_closure(code, &mh_cif, attached_method_invoke, closure);
+    ffiStatus = ffi_prep_closure_loc(write, &mh_cif, attached_method_invoke, closure, code);
 #endif
     if (ffiStatus != FFI_OK) {
         snprintf(errmsg, errmsgsize, "ffi_prep_closure failed.  status=%#x", ffiStatus);
@@ -313,7 +313,7 @@ trampoline_offsets(long* ctxOffset, long* fnOffset)
 }
 
 static bool
-prep_trampoline(void* ctx, void* code, Closure* closure, char* errmsg, size_t errmsgsize)
+prep_trampoline(void* ctx, void *write, void* code, Closure* closure, char* errmsg, size_t errmsgsize)
 {
     caddr_t ptr = (caddr_t) code;
 
